@@ -1,0 +1,2 @@
+#!/bin/sh
+ls|cut -c -10|column

@@ -1,0 +1,99 @@
+#!/usr/dt/bin/dtksh
+#
+# xcolourdemo - a demo of the X11 capabilities Desktop Korn Shell, dtksh.
+#	This cycles through the available colours. Tested on Solaris. ver 0.7
+#
+# Written for a 24-bit colour display. On non-Solaris, check the path of your
+#  dtksh (may not be "/usr/dt/bin/dtksh").
+#
+#
+# USAGE: ./xcolourdemo
+#
+#	See the code for customisation such as window size and colour speed.
+#
+# NOTE: The output may not be what you expect. It really will cycle through
+#  all the colours - but could take some hours to do so.
+#
+#
+# COPYRIGHT: Copyright (c) 2004 Brendan Gregg.
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version. 
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details. 
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software Foundation, 
+#  Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#
+#  (http://www.gnu.org/copyleft/gpl.html)
+# 
+# 01-Apr-2004	Brendan Gregg	Created this
+
+delay=10			# frame delay (ms)
+max_x=600			# window size x
+max_y=60			# window size y
+colour_bg=White			# background colour
+colour_fg=0			# initial line colour
+colour_inc=8			# colour increment
+
+
+# 
+# --- Create X11 window ---
+#
+XtInitialize TOP colourdemo Colourdemo $0 
+XtCreateManagedWidget FORM form XmForm $TOP \
+	resizePolicy:RESIZE_NONE \
+	height:$max_y width:$max_x x:0 y:0
+XtCreateManagedWidget DRAW draw XmDrawingArea $FORM \
+	height:$max_y width:$max_x x:0 y:0 \
+	background:$colour_bg foreground:$colour_bg
+XtDisplay DISPLAY $FORM
+XSync $DISPLAY true
+XtRealizeWidget $TOP
+XtWindow WINDOW $DRAW
+
+### initial line coordinates
+old_x=0
+x=0
+
+
+#
+# --- Draw line function ---
+#
+function drawline {
+	
+	### Draw new line
+	XDrawLine $DISPLAY $WINDOW \
+		-foreground $colour_fg \
+		-line_width 1 \
+		-line_style LineSolid \
+		$x 0 $x $max_y
+
+	### Save old position
+	old_x1=$x1
+	old_y1=$y1
+	old_x2=$x2
+	old_y2=$y2
+
+	### Calculate new line position and colour
+	(( colour_fg += $colour_inc ))
+	if (( colour_inc > 16777216 )); then colour_inc=0; fi
+	(( x++ ))
+	if (( x > max_x )); then x=0; fi
+
+	XtAddTimeOut ID $delay drawline		# pause, then draw next
+}
+
+
+#
+# --- Main ---
+#
+XtAddTimeOut ID $delay drawline			# pause, then draw line
+XtMainLoop
+

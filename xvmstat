@@ -1,0 +1,524 @@
+#!/usr/dt/bin/dtksh
+#
+# xvmstat - Solaris vmstat rendered in X11. Plots values on a graph.
+# 	This is also a demo of the Desktop Korn Shell's X11 features (dtksh).
+#
+# Written for a 24-bit colour display. 
+#
+# 16-Jan-2005	ver 0.70	(check for newer versions)
+#
+#
+# USAGE: xvmstat [-h] [-x pixels] [-y pixels] [-tc colour] [-lc colour]
+#                [[-bg colour]|[-bg1 colour -bg2 colour]] [-q num] [inteval]
+#
+#        -h      help
+#        -x      width (pixels)
+#        -y      height (pixels)
+#        -q      rbw queue scale (default 10)
+#        -tc     text colour
+#        -lc     line colour
+#        -br     border colour
+#        -bg     background colour, or,
+#        -bg1    background colour 1
+#        -bg2    background colour 2
+#   eg,
+#        xvmstat						# defaults
+#        xvmstat 5						# 5 sec samples
+#        xvmstat -x 150 -y 300					# draw tiny
+#        xvmstat -bg Black -tc White -br grey20			# dark colours
+#        xvmstat -bg1 LightSeaGreen -bg2 MediumAquamarine	# nice colours
+#
+# Valid colours may include unusual options such as SkyBlue, MidnightBlue,
+#  AntiqueWhite, LightSeaGreen, MediumAquamarine, etc.. 
+# On Solaris the file to read is, /usr/openwin/lib/X11/rgb.txt
+#
+#
+# COPYRIGHT: Copyright (c) 2004 Brendan Gregg.
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version. 
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details. 
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software Foundation, 
+#  Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#
+#  (http://www.gnu.org/copyleft/gpl.html)
+#
+# Author: Brendan Gregg  [Sydney, Australia]
+#
+# ToDo:
+#  * enable this program to work on an 8-bit colour display
+#  * handle window resizing
+#  * improve plot resizing (when value is higher than the previous high)
+# 
+# 01-Apr-2004	Brendan Gregg	Created this
+
+#
+# --- Default Variables ---
+#
+interval=1			# vmstat interval (s)
+max_x=200			# window size x
+max_y=600			# window size y
+colour_line=Red			# line colour
+colour_text=DarkBlue		# text colour
+colour_bg1=White		# background colour 1
+colour_bg2=White		# background colour 2
+colour_border=LightGray		# border colour
+delay1=750			# delay (ms), while reading 
+delay2=900			# delay (ms), waiting
+scale_rbw=10			# default scale for rbw queues
+scale_all=100			# default scale
+
+### Nicely exit
+trap 'delay1=$delay2; sleep 0.4; exit' 2 15
+
+
+#
+# --- Parse Options ---
+#
+while (( $# != 0 ))
+do
+        case "$1" in
+	-h|--help)	print -u2 "
+USAGE: $0 [-h] [-x pixels] [-y pixels] [-tc colour] [-lc colour]
+		[[-bg colour]|[-bg1 colour -bg2 colour]] [-q num] [inteval]\n
+	-h	help
+	-x	width (pixels)
+	-y	height (pixels)
+        -q      rbw queue scale (default 10)
+	-tc	text colour
+	-lc	line colour
+	-br	border colour
+	-bg	background colour, or,
+	-bg1	background colour 1
+	-bg2	background colour 2
+
+   eg,
+	$0                                              # defaults
+	$0 5                                            # 5 sec samples
+	$0 -x 150 -y 300                                # draw tiny
+	$0 -bg Black -tc White -br grey20               # dark colours
+	$0 -bg1 LightSeaGreen -bg2 MediumAquamarine     # nice colours\n
+"
+			exit 1
+			;;
+	-tc|-fg)	colour_text=$2
+			shift
+			;;
+	-x)	max_x=$2
+		if (( max_x < 100 )); then
+			print -u2 "ERROR2: Width $max_x is too small\n"
+			exit 2
+		fi
+		shift
+		;;
+	-y)	max_y=$2
+		if (( max_y < 200 )); then
+			print -u2 "ERROR3: Height $max_y is too small\n"
+			exit 3
+		fi
+		shift
+		;;
+	-q)	scale_rbw=$2
+		if (( scale_rbw < 1 )); then
+			print -u2 "ERROR4: Scale $scale_rbw is too small\n"
+			exit 4
+		fi
+		shift
+		;;
+	-lc)	colour_line=$2
+		shift
+		;;
+	-br)	colour_border=$2
+		shift
+		;;
+	-bg)	colour_bg1=$2
+		colour_bg2=$2
+		shift
+		;;
+	-bg1)	colour_bg1=$2
+		shift
+		;;
+	-bg2)	colour_bg2=$2
+		shift
+		;;
+        *)	interval=$1
+		if (( interval != 1 )); then
+			# wait longer for data
+			(( delay2 = interval * 500 ))
+		fi
+                break
+                ;;
+        esac
+        shift
+done
+
+
+#
+# --- Calculate scalable variables ---
+#
+(( pan_y = max_y / 15 ))	# pan_y is the panel size
+(( draw_y = pan_y - 2 ))	# draw_y is the drawable size
+(( margin = draw_y / 4 - 4 ))	# margin for text labels
+colour_bg[0]=$colour_bg1
+colour_bg[1]=$colour_bg1
+colour_bg[2]=$colour_bg1
+colour_bg[3]=$colour_bg2
+colour_bg[4]=$colour_bg2
+colour_bg[5]=$colour_bg1
+colour_bg[6]=$colour_bg1
+colour_bg[7]=$colour_bg1
+colour_bg[8]=$colour_bg1
+colour_bg[9]=$colour_bg1
+colour_bg[10]=$colour_bg1
+colour_bg[11]=$colour_bg1
+colour_bg[12]=$colour_bg2
+colour_bg[13]=$colour_bg2
+colour_bg[14]=$colour_bg2
+
+
+# 
+# --- Create X11 window ---
+#
+XtInitialize TOP vmstat Vmstat $0 
+XtCreateManagedWidget FORM form XmForm $TOP \
+	resizePolicy:RESIZE_NONE \
+	height:$max_y width:$max_x x:0 y:0 \
+	background:$colour_border foreground:$colour_border
+
+#
+# --- Initial panel values ---
+#
+i=0
+y=0
+while (( i <= 14 )); do
+	start_y[$i]=$y
+	high[$i]=$scale_all
+	values[$i]=0
+	lastdraw[$i]=0
+	(( y += pan_y ))
+	(( i++ ))
+done
+high[0]=$scale_rbw
+high[1]=$scale_rbw
+high[2]=$scale_rbw
+
+#
+# --- Create panels ---
+#
+i=0
+while (( i <= 14 )); do
+	XtCreateManagedWidget DRAW$i draw$i XmDrawingArea $FORM \
+		height:$draw_y width:$max_x x:0 y:${start_y[$i]} \
+		background:${colour_bg[$i]} marginHeight:0
+	(( i++ ))
+done
+
+### Create a lookup array
+set -A DRAWS $DRAW0 $DRAW1 $DRAW2 $DRAW3 $DRAW4 $DRAW5 $DRAW6 $DRAW7 \
+ $DRAW8 $DRAW9 $DRAW10 $DRAW11 $DRAW12 $DRAW13 $DRAW14
+
+
+#
+# --- Create text labels ---
+#
+XtCreateManagedWidget LABEL0 label0 XmLabel $DRAW0 \
+        x:10 y:$margin background:${colour_bg[0]} foreground:$colour_text \
+        labelString:"r"
+XtCreateManagedWidget LABEL1 label1 XmLabel $DRAW1 \
+        x:10 y:$margin background:${colour_bg[1]} foreground:$colour_text \
+        labelString:"b"
+XtCreateManagedWidget LABEL2 label2 XmLabel $DRAW2 \
+        x:10 y:$margin background:${colour_bg[2]} foreground:$colour_text \
+        labelString:"w"
+XtCreateManagedWidget LABEL3 label3 XmLabel $DRAW3 \
+        x:10 y:$margin background:${colour_bg[3]} foreground:$colour_text \
+        labelString:"swap"
+XtCreateManagedWidget LABEL4 label4 XmLabel $DRAW4 \
+        x:10 y:$margin background:${colour_bg[4]} foreground:$colour_text \
+        labelString:"free"
+XtCreateManagedWidget LABEL5 label5 XmLabel $DRAW5 \
+        x:10 y:$margin background:${colour_bg[5]} foreground:$colour_text \
+        labelString:"re"
+XtCreateManagedWidget LABEL6 label6 XmLabel $DRAW6 \
+        x:10 y:$margin background:${colour_bg[6]} foreground:$colour_text \
+        labelString:"mf"
+XtCreateManagedWidget LABEL7 label7 XmLabel $DRAW7 \
+        x:10 y:$margin background:${colour_bg[7]} foreground:$colour_text \
+        labelString:"pi"
+XtCreateManagedWidget LABEL8 label8 XmLabel $DRAW8 \
+        x:10 y:$margin background:${colour_bg[8]} foreground:$colour_text \
+        labelString:"po"
+XtCreateManagedWidget LABEL9 label9 XmLabel $DRAW9 \
+        x:10 y:$margin background:${colour_bg[9]} foreground:$colour_text \
+        labelString:"fr"
+XtCreateManagedWidget LABEL10 label10 XmLabel $DRAW10 \
+        x:10 y:$margin background:${colour_bg[10]} foreground:$colour_text \
+        labelString:"de"
+XtCreateManagedWidget LABEL11 label11 XmLabel $DRAW11 \
+        x:10 y:$margin background:${colour_bg[11]} foreground:$colour_text \
+        labelString:"sr"
+XtCreateManagedWidget LABEL12 label12 XmLabel $DRAW12 \
+        x:10 y:$margin background:${colour_bg[12]} foreground:$colour_text \
+        labelString:"us"
+XtCreateManagedWidget LABEL13 label13 XmLabel $DRAW13 \
+        x:10 y:$margin background:${colour_bg[13]} foreground:$colour_text \
+        labelString:"sys"
+XtCreateManagedWidget LABEL14 label14 XmLabel $DRAW14 \
+        x:10 y:$margin background:${colour_bg[14]} foreground:$colour_text \
+        labelString:"id"
+
+#
+# --- Create high labels ---
+#
+# x location of high label
+(( high_x = max_x - 70 ))
+i=0
+while (( i <= 2 )); do
+	XtCreateManagedWidget HIGH$i high$i XmLabel ${DRAWS[$i]} \
+		x:$high_x y:$margin foreground:$colour_text \
+		background:${colour_bg[$i]} labelString:$scale_rbw
+	(( i++ ))
+done
+while (( i <= 14 )); do
+	XtCreateManagedWidget HIGH$i high$i XmLabel ${DRAWS[$i]} \
+		x:$high_x y:$margin foreground:$colour_text \
+		background:${colour_bg[$i]} labelString:$scale_all
+	(( i++ ))
+done
+
+#
+# --- Fetch widget IDs ---
+#
+XtDisplay DISPLAY $FORM
+XSync $DISPLAY true
+XtRealizeWidget $TOP
+i=0
+while (( i <= 14 )); do
+	XtWindow WINDOW$i ${DRAWS[$i]}
+	(( i++ ))
+done
+
+#
+# --- Create arrays of related widgets ---
+#
+set -A WINDOWS $WINDOW0 $WINDOW1 $WINDOW2 $WINDOW3 $WINDOW4 $WINDOW5 \
+ $WINDOW6 $WINDOW7 $WINDOW8 $WINDOW9 $WINDOW10 $WINDOW11 $WINDOW12 \
+ $WINDOW13 $WINDOW14 $WINDOW15
+set -A HIGHS $HIGH0 $HIGH1 $HIGH2 $HIGH3 $HIGH4 $HIGH5 $HIGH6 $HIGH7 \
+ $HIGH8 $HIGH9 $HIGH10 $HIGH11 $HIGH12 $HIGH13 $HIGH14
+
+
+#
+# --- Initial values ---
+#
+clear=0
+old_x=0
+time=-1
+x=-1
+
+
+#
+# --- Run vmstat as a co-process ---
+#
+vmstat $interval 2>/dev/null |& 
+exec 3<&p
+# throw out header and boot line
+read -u3 junk
+read -u3 junk
+read -u3 junk
+
+
+#
+# --- Redraw plot - solid ---
+#
+# This is the function to redraw a single plot
+#
+function redrawplot_solid {
+	plotnum=$1
+
+	### Draw in new plot
+	varname='${#plot'$plotnum[		# 2D arrays are not easy
+	eval points=$varname'*]}'		# in this version of ksh
+	j=0
+	while (( j < points )); do
+
+		### Calculate coordinates
+	   	varname='${plot'$plotnum[
+		eval rvalue=$varname$j']}'
+		(( old_rx = j ))
+		(( new_rx = j + 1 ))
+		(( new_ry = draw_y - 1 - 
+		 ((draw_y - 2) * rvalue / ${high[$i]}) ))
+		if (( j == 0 )); then
+		old_ry=$new_ry
+		fi
+
+		### Draw the line
+		XDrawLine $DISPLAY ${WINDOWS[$i]} \
+			-foreground $colour_line \
+			-line_width 1 \
+			-line_style LineSolid \
+		$old_rx $old_ry $new_rx $new_ry
+
+		old_ry=$new_ry
+	
+		(( j++ ))
+	done
+}
+
+#
+# --- Redraw plots - solid ---
+#
+# This redraws all the plots using the line colour.
+#
+function redrawplots_solid {
+
+	### Redraw all plots
+	i=0
+	while (( i <= 14 )); do
+
+		### Check if this is the window
+		if [[ "$CB_WIDGET" == "${DRAWS[$i]}" ]]; then
+
+			# don't redraw if we just did this
+			if (( (SECONDS - ${lastdraw[$i]}) < 1 )); then
+				return
+			fi
+			# redraw
+			redrawplot_solid $i
+			lastdraw[$i]=$SECONDS
+		fi
+		(( i++ ))
+	done
+	XFlush $DISPLAY
+}
+
+
+
+#
+# --- Update graphs function ---
+#
+function update {
+
+	### Fetch new values
+	word=""
+	rest=""
+	trap ':' 17                     # Do nothing on signal 17
+	(sleep 0.3; kill -17 $$) &      # Send 17 if we wait too long
+	read -u3 word rest              # This is now a timed read
+	kill -9 $! 2> /dev/null         # Zap the watchdog 
+
+	### Skip headers and state changes
+	if [[ "$word" == @(kthr|procs|r|<<State) ]]; then
+		# minimum timeout - we expect more data
+		XtAddTimeOut ID 100 update
+		return
+	fi
+
+	set -- $word $rest
+	set -A values $1 $2 $3 $4 $5 $6 $7 $8 $9 ${10} ${11} ${12} \
+	 ${20} ${21} ${22}
+
+	### Trigger next update
+	if [[ "${values[14]}" == "" ]]; then
+		# no data, wait a while
+		XtAddTimeOut ID $delay2 update
+		return
+	fi
+
+	### Increment x 
+	(( x++ ))
+	(( time++ ))
+	if (( x > max_x )); then 
+		x=0
+		time=0
+		clear=1
+		i=0
+		while (( i <= 14 )); do
+			eval unset plot$i
+			(( i++ ))
+		done
+	fi
+
+	### Check value for height
+	i=0
+	while (( i <= 14 )); do
+		if (( ${values[$i]} > ${high[$i]} )); then
+			high[$i]=${values[$i]}
+			XtSetValues ${HIGHS[$i]} labelString:${values[$i]}
+			XtSetValues ${DRAWS[$i]} width:$max_x height:$draw_y
+		fi
+		(( i++ ))
+	done
+
+
+	### Draw new lines
+	i=0
+	while (( i <= 14 )); do
+		# calculate coordinates
+		(( old_x = x ))
+		(( new_x = x + 1 ))
+		(( new_y = draw_y - 1 - 
+		 ((draw_y - 2) * ${values[$i]} / ${high[$i]}) ))
+		if (( x == 0 )); then
+			old_y=$new_y
+		else
+			old_y=${old[$i]}
+		fi
+
+		# blank if needed
+		if (( clear == 1 )); then
+			XDrawLine $DISPLAY ${WINDOWS[$i]} \
+				-foreground ${colour_bg[$i]} \
+				-line_width 1 \
+				-line_style LineSolid \
+				$new_x 0 $new_x $draw_y
+			if (( x == 0 )); then
+				XDrawLine $DISPLAY ${WINDOWS[$i]} \
+					-foreground ${colour_bg[$i]} \
+					-line_width 1 \
+					-line_style LineSolid \
+					0 0 0 $draw_y
+			fi
+			
+		fi
+		
+		# draw the line
+		XDrawLine $DISPLAY ${WINDOWS[$i]} \
+			-foreground $colour_line \
+			-line_width 1 \
+			-line_style LineSolid \
+			$old_x $old_y $new_x $new_y
+
+		# save old y
+		old[$i]=$new_y
+		eval plot$i[$time]=${values[$i]}
+
+		(( i++ ))
+	done
+
+	### Trigger next update
+	XtAddTimeOut ID $delay1 update
+}
+
+
+#
+# --- Main ---
+#
+i=0
+while (( i <= 14 )); do
+	XtAddCallback ${DRAWS[$i]} inputCallback redrawplots_solid
+	XtAddCallback ${DRAWS[$i]} exposeCallback redrawplots_solid
+	(( i++ ))
+done
+XtAddTimeOut ID $delay1 update
+XtMainLoop
+

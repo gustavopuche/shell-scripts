@@ -1,0 +1,414 @@
+#!/usr/dt/bin/dtksh
+#
+# xplot - plot data to X11. Plots input values on a graph.
+# 	This is also a demo of the Desktop Korn Shell's X11 features (dtksh).
+#
+# Written for a 24-bit colour display. 
+#
+# 10-Apr-2004	ver 0.76	(check for newer versions)
+#
+#
+# USAGE: xplot [-h] [-f field] [-d delim] [-hi num] [-inc num] [-x pixels]
+#		[-y pixels] [-tc colour] [-lc colour] [-bg colour] [-t text]
+#		[-T text]
+#
+#	-h	help
+#	-f	field number (first is 0)
+#	-d	field delimiter
+#	-hi	y max scale value
+#	-inc	x increment per value
+#	-x	width (pixels)
+#	-y	height (pixels)
+#	-tc	text colour
+#	-lc	line colour
+#	-br	border colour
+#	-bg	background colour
+#	-t	text label for graph
+#	-T	text title for window
+#   eg,
+#	vmstat 1 | xplot -f 21 -hi 100 -t "idle"	# plot idle time
+#	vmstat 1 | xplot -f 3 -T "swap free"		# plot swap free
+#	xplot -d : -f 2 -hi 65536 < /etc/passwd		# plot UIDs (???)
+#
+# Valid colours may include unusual options such as SkyBlue, MidnightBlue,
+#  AntiqueWhite, LightSeaGreen, MediumAquamarine, etc.. 
+# On Solaris the file to read is, /usr/openwin/lib/X11/rgb.txt
+#
+# NOTES: options are used as "-f 2" not "-f2".
+#
+#
+# COPYRIGHT: Copyright (c) 2004 Brendan Gregg.
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version. 
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details. 
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software Foundation, 
+#  Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#
+#  (http://www.gnu.org/copyleft/gpl.html)
+#
+# Author: Brendan Gregg  [Sydney, Australia]
+#
+# ToDo:
+#  * enable this program to work on an 8-bit colour display
+#  * improve plot wrapping
+# 
+# 01-Apr-2004	Brendan Gregg	Created this
+# 10-Apr-2004	   "      "	Fixed redisplay, resizing
+
+
+#
+# --- Default Variables ---
+#
+max_x=300			# window size x
+max_y=200			# window size y
+colour_line=Red			# line colour
+colour_text=DarkBlue		# text colour
+colour_bg=White			# background colour
+colour_border=LightGray		# border colour
+delay1=50			# delay (ms), while reading
+delay2=750			# delay (ms), waiting
+high=1				# max y coord. on scale
+inc=1				# x inc per point
+field=0				# field to plot
+text=""				# text label
+title="xplot"			# window title
+
+### Nicely exit
+trap 'delay1=$delay2; sleep 0.4; exit' 2 15
+
+
+#
+# --- Parse Options ---
+#
+while (( $# != 0 ))
+do
+        case "$1" in
+	-h|--help)	print -u2 "
+USAGE: $0 [-h] [-f field] [-d delim] [-hi num] [-inc num] [-x pixels]
+		[-y pixels] [-tc colour] [-lc colour] [-bg colour] [-t text]
+		[-T text]\n
+	-h	help
+	-f	field number (first is 0)
+	-d	field delimiter
+	-hi	y max scale value
+	-inc	x increment per value
+	-x	width (pixels)
+	-y	height (pixels)
+	-tc	text colour
+	-lc	line colour
+	-br	border colour
+	-bg	background colour
+	-t	text label for graph
+	-T	text title for window\n
+   eg,
+	vmstat 1 | $0 -f 21 -hi 100 -t \"idle\"        # plot idle time
+	vmstat 1 | $0 -f 3 -T \"swap free\"            # plot swap free
+	$0 -d : -f 2 -hi 65536 < /etc/passwd         # plot UIDs (???)
+"
+			exit 0
+			;;
+	-tc|-fg)	colour_text=$2
+			shift
+			;;
+	-x)	max_x=$2
+		if (( max_x < 100 )); then
+			print -u2 "ERROR: Width $max_x is too small\n"
+			exit 1
+		fi
+		shift
+		;;
+	-y)	max_y=$2
+		if (( max_y < 100 )); then
+			print -u2 "ERROR: Height $max_y is too small\n"
+			exit 1
+		fi
+		shift
+		;;
+	-f)	field=$2
+		shift
+		;;
+	-d)	IFS=$2
+		shift
+		;;
+	-hi)	high=$2
+		shift
+		;;
+	-inc)	inc=$2
+		shift
+		;;
+	-t)	text=$2
+		shift
+		;;
+	-T)	title=$2
+		shift
+		;;
+	-lc)	colour_line=$2
+		shift
+		;;
+	-br)	colour_border=$2
+		shift
+		;;
+	-bg)	colour_bg=$2
+		shift
+		;;
+        esac
+        shift
+done
+
+
+#
+# --- Calculate scalable variables ---
+#
+(( draw_y = max_y - 2 ))	# draw_y is the drawable size
+(( margin = draw_y / 4 - 4 ))	# margin for text labels
+
+
+# 
+# --- Create X11 window ---
+#
+XtInitialize TOP plot Plot $0 
+XtCreateManagedWidget FORM form XmForm $TOP \
+	resizePolicy:RESIZE_ANY dialogTitle:"$title" \
+	height:$max_y width:$max_x x:0 y:0 \
+	background:$colour_border foreground:$colour_border
+
+#
+# --- Initial panel values ---
+#
+y=0
+value=0
+
+#
+# --- Create panel ---
+#
+XtCreateManagedWidget DRAW1 draw1 XmDrawingArea $FORM \
+	topAttachment:ATTACH_FORM bottomAttachment:ATTACH_FORM \
+	leftAttachment:ATTACH_FORM rightAttachment:ATTACH_FORM \
+	x:0 y:0 background:$colour_bg marginHeight:0
+
+#
+# --- Create text label ---
+#
+if [[ "$text" != "" ]]; then
+	XtCreateManagedWidget LABEL1 label1 XmLabel $DRAW1 \
+		x:10 y:$margin background:$colour_bg foreground:$colour_text \
+		labelString:"$text"
+fi
+
+#
+# --- Create high label ---
+#
+(( high_x = max_x - 70 ))
+XtCreateManagedWidget HIGH1 high1 XmLabel $DRAW1 \
+	x:$high_x y:$margin foreground:$colour_text background:$colour_bg \
+	labelString:"$high"
+
+#
+# --- Fetch widget IDs ---
+#
+XtDisplay DISPLAY $FORM
+XSync $DISPLAY true
+XtRealizeWidget $TOP
+XtWindow WINDOW1 $DRAW1
+
+
+#
+# --- Initial values ---
+#
+time=-1
+old_x=0
+(( x = -inc ))
+
+
+#
+# --- Redraw plot - clear ---
+#
+# This clears the plot by redrawing it using the background colour.
+#
+function redrawplot_clear {
+
+	points=${#plot[*]}
+
+	### White out old plot
+	i=0
+	while (( i < points )); do
+		### Calculate coordinates
+		rvalue=${plot[$i]}
+		(( old_rx = i * inc ))
+		(( new_rx = i * inc + inc ))
+		(( new_ry = draw_y - 1 - ((draw_y - 2) * rvalue / high) ))
+		if (( i == 0 )); then
+			old_ry=$new_ry
+		fi
+
+		### Draw the line
+		XDrawLine $DISPLAY $WINDOW1 \
+			-foreground $colour_bg \
+			-line_width 1 \
+			-line_style LineSolid \
+			$old_rx $old_ry $new_rx $new_ry
+
+		old_ry=$new_ry
+
+		(( i++ ))
+	done
+}
+
+#
+# --- Redraw plot - solid ---
+#
+# This redraws the plot using the line colour.
+#
+function redrawplot_solid {
+	points=${#plot[*]}
+
+	### Draw in new plot
+	i=0
+	while (( i < points )); do
+		### Calculate coordinates
+		rvalue=${plot[$i]}
+		(( old_rx = i * inc ))
+		(( new_rx = i * inc + inc ))
+		(( new_ry = draw_y - 1 - ((draw_y - 2) * rvalue / high) ))
+		if (( i == 0 )); then
+			old_ry=$new_ry
+		fi
+
+		### Draw the line
+		XDrawLine $DISPLAY $WINDOW1 \
+			-foreground $colour_line \
+			-line_width 1 \
+			-line_style LineSolid \
+			$old_rx $old_ry $new_rx $new_ry
+
+		old_ry=$new_ry
+
+		(( i++ ))
+	done
+	XFlush $DISPLAY
+}
+
+#
+# --- Resize Plot function ---
+#
+function resizeplot {
+	### Clear old plot
+	redrawplot_clear
+
+	### Fetch new size
+	XtGetValues $DRAW1 width:max_x height:max_y
+	(( high_x = max_x - 70 ))
+	(( draw_y = max_y - 2 ))
+	(( margin = draw_y / 4 - 4 ))
+
+	### Recalculate next starting y loc
+	if (( x >= 0 )); then
+		old_value=${plot[$time]}
+		(( old_y = draw_y - 1 - ((draw_y - 2) * old_value / high) ))
+	fi
+
+	### Draw new plot
+	redrawplot_solid
+	XtSetValues $HIGH1 x:$high_x y:$margin
+	if [[ "$text" != "" ]]; then
+		XtSetValues $LABEL1 y:$margin
+	fi
+}
+
+#
+# --- Update graphs function ---
+#
+function update {
+
+	### Fetch new value
+	line=""
+	trap ':' 17			# Do nothing on signal 17
+	(sleep 0.3; kill -17 $$) &	# Send 17 if we wait too long
+	read line			# This is now a timed read
+	kill -9 $! 2> /dev/null		# Zap the watchdog 
+	set -A Fields -- $line
+	value=${Fields[$field]}
+
+	### Skip if value is not a number
+	if [[ "$value" != [0-9.]* ]]; then
+
+		### Trigger next update
+		if [[ "$value" == "" ]]; then
+			# no data, wait a while
+			XtAddTimeOut ID $delay2 update
+		else
+			# bad data, keep reading
+			XtAddTimeOut ID $delay1 update
+		fi
+
+		return
+	fi
+
+	### Increment x 
+	(( x += inc ))
+	(( time++ ))
+	if (( x > max_x )); then 
+		redrawplot_clear
+		x=0
+		time=0
+		unset plot
+	fi
+
+	### Save old value
+	old=$value
+
+	### Check value
+	if (( value > high )); then
+		redrawplot_clear
+		high=$value
+		XtSetValues $HIGH1 labelString:"$value"
+		XtSetValues $DRAW1 width:$max_x height:$draw_y
+		redrawplot_solid
+		if (( x > 0 )); then
+			(( old_t = time - 1 ))
+			(( old_y = draw_y - 1 - 
+			 ((draw_y - 2) * plot[$old_t] / high) ))
+		fi
+	fi
+	
+	### Calculate coordinates
+	(( old_x = x ))
+	(( new_x = x + inc ))
+	(( new_y = draw_y - 1 - ((draw_y - 2) * value / high) ))
+	if (( x == 0 )); then
+		old_y=$new_y
+	fi
+
+	### Draw the line
+	XDrawLine $DISPLAY $WINDOW1 \
+		-foreground $colour_line \
+		-line_width 1 \
+		-line_style LineSolid \
+		$old_x $old_y $new_x $new_y
+
+	### save old values
+	old_y=$new_y
+	plot[$time]=$value
+
+	### Trigger next update
+	XtAddTimeOut ID $delay1 update
+}
+
+
+#
+# --- Main ---
+#
+XtAddCallback $DRAW1 inputCallback redrawplot_solid
+XtAddCallback $DRAW1 exposeCallback redrawplot_solid
+XtAddCallback $DRAW1 resizeCallback resizeplot
+XtAddTimeOut ID $delay1 update
+XtMainLoop

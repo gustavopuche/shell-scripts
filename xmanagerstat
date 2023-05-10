@@ -1,0 +1,160 @@
+#!/usr/dt/bin/dtksh
+#
+# xmanagerstat - A sophisticated system status tool with blinking lights.
+#	This also is a demo of the X11 capabilities Desktop Korn Shell, dtksh.
+#	So far tested on Solaris. ver 0.7
+#
+# In the days of vacuum tubes and real computers, mainframes were adorned with 
+#  blinking status lights. Reading these was quite a skill, one that provides
+#  an view of the computer thinking in real time. The desire for this kind of
+#  interface exists today, with some IT managers unsatisfied unless they can
+#  see blinking lights.
+#
+# On non-Solaris check the path of your dtksh (may not be "/usr/dt/bin/dtksh").
+#
+#
+# USAGE: xmanagerstat
+#
+# 	See the code for customisation such as the size of the window.
+#
+# COPYRIGHT: Copyright (c) 2004 Brendan Gregg.
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version. 
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details. 
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this program; if not, write to the Free Software Foundation, 
+#  Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#
+#  (http://www.gnu.org/copyleft/gpl.html)
+# 
+# 21-Dec-2004	Brendan Gregg	Created this
+
+#
+# --- Variable Decs ---
+#
+delay=10		# frame delay (ms)
+max_x=400		# window size x
+max_y=200		# window size y
+lights_x=8		# number of x lights
+lights_y=3		# number of y lights
+width=20		# width of light
+title_y=40		# space for title
+border_x=0		# was needed during dev
+
+### Labels
+word[00]=us
+word[01]=sy
+word[02]=id
+word[03]=re
+word[04]=mf
+word[05]=pi
+word[06]=po
+word[07]=sr
+word[10]=cpu
+word[11]=net
+word[12]=io
+word[13]=vm
+word[14]=tm
+word[15]=ctx
+word[16]=in
+word[17]=sy
+word[20]=wt
+word[21]=fr
+word[22]=fee
+word[23]=fi
+word[24]=fo
+word[25]=fum
+word[26]=uid
+word[27]=pid
+
+
+# 
+# --- Create X11 window ---
+#
+XtInitialize TOP linesdemo Linesdemo $0 
+XtCreateManagedWidget FORM form XmForm $TOP \
+	resizePolicy:RESIZE_NONE \
+	height:$max_y width:$max_x x:0 y:0
+XtCreateManagedWidget DRAW draw XmDrawingArea $FORM \
+	height:$max_y width:$max_x x:0 y:0 \
+	background:white foreground:white
+XtDisplay DISPLAY $FORM
+XSync $DISPLAY true
+XtRealizeWidget $TOP
+XtWindow WINDOW $DRAW
+
+# Main Title
+(( title_x = max_x / 2 - 50 ))
+XtCreateManagedWidget LABELt labelt XmLabel $DRAW \
+	x:$title_x y:0 background:white foreground:black \
+	labelString:"Host: `uname -n`"
+
+# This kludge is needed for some odd dtksh reason,
+XtCreateManagedWidget LABELk labelk XmLabel $DRAW \
+	x:0 y:$max_y background:white foreground:white \
+	labelString:" "
+
+
+#
+# --- Draw Labels ---
+#
+(( max_y = max_y - title_y ))
+(( max_x = max_x - border_x ))
+(( nudge_x = max_x / (lights_x * 2) - width / 2 + border_x ))
+(( nudge_y = max_y / (lights_y * 2) - width / 2 + title_y ))
+
+word_y=0
+while (( word_y < lights_y )); do
+	word_x=0
+	while (( word_x < lights_x )); do
+		(( x = word_x * max_x / lights_x + nudge_x ))
+		(( y = word_y * max_y / lights_y + nudge_y - width ))
+		XtCreateManagedWidget LABEL$word_y$word_x label$word_y$word_x XmLabel $DRAW \
+			x:$x y:$y background:white foreground:black \
+			labelString:${word[$word_y$word_x]}
+		(( word_x = word_x + 1 ))
+	done
+	(( word_y = word_y + 1 ))
+done
+
+
+#
+# --- Draw Light Function ---
+#
+function blinking_lights {
+	### Pick random coordinates and colour
+	(( x = ($RANDOM % lights_x) * max_x / lights_x + nudge_x ))
+	(( y = ($RANDOM % lights_y) * max_y / lights_y + nudge_y ))
+	(( colour = $RANDOM % 2 ))
+	if (( colour == 1 )); then
+		colour=red
+	else
+		colour=black
+	fi
+
+	### Draw light
+	XFillArc $DISPLAY $WINDOW \
+		-background $colour \
+		-foreground $colour \
+		-line_width 2 \
+		-line_style LineSolid \
+		$x $y 20 20 0 24000
+
+	XtAddTimeOut ID $delay blinking_lights	# pause, then draw next
+}
+
+
+#
+# --- Main ---
+#
+XtAddTimeOut ID $delay blinking_lights		# pause, then draw light
+XtMainLoop
+
