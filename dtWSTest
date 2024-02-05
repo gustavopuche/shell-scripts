@@ -99,6 +99,11 @@ XtSetValues $RC numColumns:$wsCount
 XtRealizeWidget $TOPLEVEL2
 XSync $(XtDisplay "-" $TOPLEVEL) False
 
+echo "ws count: "$wsCount
+echo "ws list : "$WS_LIST
+SetWorkspace "406"
+
+
 #  The following block queries the initial set of workspaces occupied by
 #  this shell script; this list is printed out.  Next, it will ask the
 #  workspace manager to move the shell script windows into all workspaces.
@@ -109,22 +114,26 @@ if DtWsmGetWorkspacesOccupied $(XtDisplay "-" $TOPLEVEL)                        
 
 
 then
-   echo "Initial workspaces occupied:"
+    echo "Initial workspaces occupied:"
    for item in $CURRENT_WS_LIST; 
    do
       XmGetAtomName NAME $(XtDisplay "-" $TOPLEVEL) $item
       echo "   "$NAME
    done
 
+   echo " --1--"
    DtWsmGetWorkspaceList $(XtDisplay "-" $TOPLEVEL)                           $(XRootWindowOfScreen "-" $(XtScreen "-" $TOPLEVEL))                           WS_LIST
 
 
+   echo " --2--"
 
    DtWsmSetWorkspacesOccupied $(XtDisplay "-" $TOPLEVEL)                                $(XtWindow "-" $TOPLEVEL)                                $WS_LIST
 
-
+   echo " --3--"
 
    DtWsmSetWorkspacesOccupied $(XtDisplay "-" $TOPLEVEL2)                                $(XtWindow "-" $TOPLEVEL2)                                $WS_LIST
+
+   echo " --4--"
 
 
 else
