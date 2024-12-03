@@ -1,2 +1,2 @@
 #!/bin/bash
-/usr/dt/bin/dtterm -fg white -bg "#f0c88c" -fn "-*-pt mono-*-*-*-*-*-*-*-*-*-*-*-*" -e $1
+/usr/dt/bin/dtterm -fg white -bg "#ffff00" -fn "-*-cpmono_v07 bold-*-*-*-*-*-*-*-*-*-*-*-*" -e $1
